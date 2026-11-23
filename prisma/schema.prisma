@@ -1,0 +1,411 @@
+// GLOSS & THREAD — editorial data model
+// PostgreSQL via Prisma ORM (driver adapter: @prisma/adapter-pg)
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────
+// Users, roles & sessions
+// ─────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN // everything, including users & site settings
+  EDITOR // publish, edit any article, media, products, homepage
+  CONTRIBUTOR // create & edit own drafts; cannot publish
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         Role      @default(CONTRIBUTOR)
+  isActive     Boolean   @default(true)
+  authorId     String?   @unique
+  author       Author?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sessions         Session[]
+  createdArticles  Article[]         @relation("ArticleCreatedBy")
+  reviewedArticles Article[]         @relation("ArticleReviewedBy")
+  revisions        ArticleRevision[]
+  uploads          Media[]
+  activity         ActivityLog[]
+}
+
+model Session {
+  id        String   @id // sha256 hash of the session token; raw token only lives in the cookie
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  userAgent String?
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model RateLimit {
+  key     String   @id
+  count   Int      @default(0)
+  resetAt DateTime
+}
+
+// ─────────────────────────────────────────────────────────────
+// Authors (bylines) — real people or the editorial desk
+// ─────────────────────────────────────────────────────────────
+
+enum AuthorKind {
+  PERSON
+  ORGANIZATION // e.g. "Gloss & Thread Editors" desk byline
+}
+
+model Author {
+  id          String     @id @default(cuid())
+  slug        String     @unique
+  name        String
+  kind        AuthorKind @default(PERSON)
+  jobTitle    String?
+  shortBio    String?
+  bio         String? // plain text, paragraphs separated by blank lines
+  experience  String? // only real, owner-supplied experience
+  avatarId    String?
+  avatar      Media?     @relation("AuthorAvatar", fields: [avatarId], references: [id], onDelete: SetNull)
+  socialLinks Json       @default("[]") // [{label, url}] — verified links only
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user     User?
+  articles Article[]
+}
+
+// ─────────────────────────────────────────────────────────────
+// Taxonomy
+// ─────────────────────────────────────────────────────────────
+
+model Category {
+  id              String     @id @default(cuid())
+  slug            String
+  name            String
+  navLabel        String?
+  description     String? // short dek shown under the H1
+  intro           String? // longer editorial introduction (plain text paragraphs)
+  seoTitle        String?
+  metaDescription String?
+  parentId        String?
+  parent          Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children        Category[] @relation("CategoryTree")
+  sortOrder       Int        @default(0)
+  showInNav       Boolean    @default(true)
+  // A category page is only indexable once it has enough original articles.
+  minArticlesToIndex Int     @default(3)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  articles Article[]
+
+  @@unique([parentId, slug])
+  @@index([parentId, sortOrder])
+}
+
+model Tag {
+  id        String       @id @default(cuid())
+  slug      String       @unique
+  name      String
+  createdAt DateTime     @default(now())
+  articles  ArticleTag[]
+}
+
+model ArticleTag {
+  articleId String
+  tagId     String
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, tagId])
+  @@index([tagId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Articles
+// ─────────────────────────────────────────────────────────────
+
+enum ArticleStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ReviewStatus {
+  NOT_REVIEWED
+  CHANGES_REQUESTED
+  APPROVED
+}
+
+enum ContentType {
+  INSPIRATION_GALLERY
+  HOW_TO
+  EXPLAINER
+  TREND_ANALYSIS
+  OUTFIT_GUIDE
+  COMPARISON
+  SHOPPING_ROUNDUP
+  FEATURE
+}
+
+model Article {
+  id          String        @id @default(cuid())
+  slug        String        @unique
+  title       String
+  subtitle    String?
+  excerpt     String?
+  body        Json          @default("[]") // validated block array (see src/lib/blocks/schema.ts)
+  searchText  String        @default("") // plain-text projection of body used for full-text search
+  wordCount   Int           @default(0)
+  status      ArticleStatus @default(DRAFT)
+  contentType ContentType   @default(FEATURE)
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  authorId   String?
+  author     Author?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  featuredImageId String?
+  featuredImage   Media?  @relation("ArticleFeaturedImage", fields: [featuredImageId], references: [id], onDelete: SetNull)
+
+  // SEO & indexing controls
+  seoTitle        String?
+  metaDescription String?
+  canonicalUrl    String? // override only when justified (syndication etc.)
+  robotsIndex     Boolean @default(true)
+  inSitemap       Boolean @default(true)
+
+  // Editorial flags
+  isFeatured       Boolean @default(false)
+  isSponsored      Boolean @default(false)
+  sponsorName      String?
+  hasAffiliateLinks Boolean @default(false)
+  showToc          Boolean @default(false)
+  isSample         Boolean @default(false) // demo content — must be reviewed & replaced before launch
+  sources          Json    @default("[]") // [{title, url}]
+
+  reviewStatus ReviewStatus @default(NOT_REVIEWED)
+  reviewNotes  String?
+  reviewedById String?
+  reviewedBy   User?        @relation("ArticleReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime?
+
+  publishedAt      DateTime? // also the scheduled time when status = SCHEDULED
+  contentUpdatedAt DateTime? // meaningful editorial update shown to readers
+  createdById      String?
+  createdBy        User?     @relation("ArticleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  tags            ArticleTag[]
+  revisions       ArticleRevision[]
+  relatedLinks    ArticleRelation[]  @relation("RelationFrom")
+  relatedBacklinks ArticleRelation[] @relation("RelationTo")
+  homepageFeatures HomepageFeature[]
+
+  @@index([status, publishedAt])
+  @@index([categoryId, status, publishedAt])
+  @@index([authorId])
+  @@index([isFeatured])
+}
+
+// Manual editorial override for "Related reading"
+model ArticleRelation {
+  articleId String
+  relatedId String
+  position  Int     @default(0)
+  article   Article @relation("RelationFrom", fields: [articleId], references: [id], onDelete: Cascade)
+  related   Article @relation("RelationTo", fields: [relatedId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, relatedId])
+}
+
+model ArticleRevision {
+  id          String   @id @default(cuid())
+  articleId   String
+  article     Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  snapshot    Json // full editable state at save time
+  note        String?
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([articleId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Media
+// ─────────────────────────────────────────────────────────────
+
+model Media {
+  id           String   @id @default(cuid())
+  url          String   @unique // /media/<file>.webp (uploads) or /demo/<file>.webp (bundled demo visuals)
+  filename     String
+  originalName String?
+  mimeType     String
+  width        Int
+  height       Int
+  sizeBytes    Int
+  alt          String   @default("")
+  caption      String?
+  credit       String?
+  creditUrl    String?
+  license      String? // e.g. "Owned", "Licensed — Agency X", "Original demo illustration"
+  isDemo       Boolean  @default(false)
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  featuredIn    Article[] @relation("ArticleFeaturedImage")
+  authorAvatars Author[]  @relation("AuthorAvatar")
+  products      Product[]
+
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Shopping
+// ─────────────────────────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  brand       String
+  description String? // short editorial note
+  imageId     String?
+  image       Media?   @relation(fields: [imageId], references: [id], onDelete: SetNull)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  links            AffiliateLink[]
+  homepageFeatures HomepageFeature[]
+}
+
+model AffiliateLink {
+  id              String    @id @default(cuid())
+  productId       String
+  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  merchant        String
+  url             String // verified merchant product URL
+  affiliateUrl    String? // only when a real affiliate relationship exists
+  network         String? // e.g. "Rakuten", "Impact", "Direct"
+  isAffiliate     Boolean   @default(false)
+  priceCents      Int? // only when verified
+  currency        String    @default("USD")
+  priceVerifiedAt DateTime?
+  linkVerifiedAt  DateTime?
+  isPrimary       Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([productId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Site configuration
+// ─────────────────────────────────────────────────────────────
+
+enum HomepageSlot {
+  HERO // positions 0 (lead), 1, 2
+  POPULAR // curated "Most Popular" list
+  EDITORS_PICKS // products
+}
+
+model HomepageFeature {
+  id        String       @id @default(cuid())
+  slot      HomepageSlot
+  position  Int          @default(0)
+  articleId String?
+  article   Article?     @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product?     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+
+  @@index([slot, position])
+}
+
+model Redirect {
+  id        String   @id @default(cuid())
+  fromPath  String   @unique // normalized, with trailing slash
+  toPath    String
+  permanent Boolean  @default(true)
+  hits      Int      @default(0)
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SiteSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+enum SubscriberStatus {
+  PENDING // provider requires double opt-in confirmation
+  SUBSCRIBED
+}
+
+model NewsletterSubscriber {
+  id         String           @id @default(cuid())
+  email      String           @unique
+  status     SubscriberStatus @default(PENDING)
+  provider   String
+  providerId String?
+  source     String?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+}
+
+enum MessageTopic {
+  GENERAL
+  CORRECTION
+  EDITORIAL
+  ADVERTISING
+  PRIVACY
+}
+
+model ContactMessage {
+  id        String       @id @default(cuid())
+  name      String
+  email     String
+  topic     MessageTopic @default(GENERAL)
+  subject   String?
+  pageUrl   String?
+  message   String
+  isRead    Boolean      @default(false)
+  createdAt DateTime     @default(now())
+
+  @@index([isRead, createdAt])
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String // e.g. article.publish
+  entityType String
+  entityId   String?
+  summary    String
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+}

@@ -1,0 +1,218 @@
+@import "tailwindcss";
+
+/* ───────────────────────── Gloss & Thread design tokens ───────────────────────── */
+@theme {
+  --color-paper: #ffffff;
+  --color-paper-2: #f8f7f5;
+  --color-ink: #171717;
+  --color-muted: #696969;
+  --color-line: #e9e7e4;
+  --color-rose: #a65f6f;
+  --color-rose-dark: #854554;
+  --color-rose-wash: #f6eef0;
+
+  --font-serif: var(--font-playfair), "Playfair Display", Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-inter), Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --container-page: 84rem; /* 1344px */
+  --container-read: 42.5rem; /* 680px */
+
+  --tracking-label: 0.16em;
+  --tracking-nav: 0.12em;
+  --tracking-wordmark: 0.22em;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    scroll-padding-top: 5.5rem;
+  }
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    font-feature-settings: "kern", "liga", "calt";
+  }
+  ::selection {
+    background: var(--color-rose-wash);
+    color: var(--color-ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 3px;
+  }
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  img {
+    color: transparent; /* hide alt text flash while loading */
+  }
+}
+
+/* Utilities (not components) so they can be composed with @apply in Tailwind v4 */
+@utility label {
+    @apply font-sans text-[0.6875rem] font-semibold uppercase leading-none tracking-(--tracking-label);
+}
+
+@utility btn {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 px-6 font-sans text-[0.75rem] font-semibold uppercase tracking-(--tracking-nav) transition-colors;
+}
+
+@layer components {
+  .page-x {
+    @apply mx-auto w-full max-w-(--container-page) px-4 sm:px-6 lg:px-10;
+  }
+
+  .label-rose {
+    @apply label text-rose hover:text-rose-dark;
+  }
+
+  .nav-link {
+    @apply font-sans text-[0.75rem] font-medium uppercase tracking-(--tracking-nav);
+  }
+
+  .meta {
+    @apply font-sans text-[0.8125rem] text-muted;
+  }
+
+  .hairline {
+    @apply border-line;
+  }
+
+  /* Headline link underline that grows on hover — no layout shift */
+  .story-link {
+    background-image: linear-gradient(currentColor, currentColor);
+    background-size: 0% 1px;
+    background-position: 0 100%;
+    background-repeat: no-repeat;
+    transition: background-size 0.3s ease;
+  }
+  .group:hover .story-link,
+  .story-link:hover,
+  .story-link:focus-visible {
+    background-size: 100% 1px;
+  }
+
+  .section-rule {
+    @apply border-t border-ink;
+  }
+
+  .btn-dark {
+    @apply btn bg-ink text-white hover:bg-rose-dark;
+  }
+  .btn-outline {
+    @apply btn border border-ink text-ink hover:bg-ink hover:text-white;
+  }
+
+  .field {
+    @apply block w-full border border-line bg-white px-3.5 py-2.5 font-sans text-[0.9375rem] text-ink placeholder:text-muted/70 focus:border-ink focus:outline-none;
+  }
+}
+
+/* ───────────────────────── Article body typography ───────────────────────── */
+.article-body {
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  color: #262626;
+}
+@media (min-width: 768px) {
+  .article-body {
+    font-size: 1.125rem;
+  }
+}
+.article-body > * + * {
+  margin-top: 1.4em;
+}
+.article-body p a,
+.article-body li a,
+.article-body td a,
+.article-body .callout a,
+.article-body figcaption a {
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--color-rose);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+.article-body p a:hover,
+.article-body li a:hover {
+  color: var(--color-rose-dark);
+}
+.article-body h2 {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  line-height: 1.2;
+  font-weight: 500;
+  margin-top: 2.2em;
+  color: var(--color-ink);
+}
+.article-body h3 {
+  font-family: var(--font-sans);
+  font-size: 1.1875rem;
+  line-height: 1.35;
+  font-weight: 650;
+  margin-top: 1.9em;
+  color: var(--color-ink);
+}
+@media (min-width: 768px) {
+  .article-body h2 {
+    font-size: 2rem;
+  }
+}
+.article-body h2 + *,
+.article-body h3 + * {
+  margin-top: 0.7em;
+}
+.article-body ul,
+.article-body ol {
+  padding-left: 1.25em;
+}
+.article-body ul {
+  list-style: none;
+}
+.article-body ul > li {
+  position: relative;
+}
+.article-body ul > li::before {
+  content: "";
+  position: absolute;
+  left: -1.05em;
+  top: 0.78em;
+  width: 0.36em;
+  height: 1px;
+  background: var(--color-ink);
+}
+.article-body ol {
+  list-style: decimal;
+}
+.article-body ol > li::marker {
+  font-family: var(--font-serif);
+  color: var(--color-rose);
+}
+.article-body li + li {
+  margin-top: 0.55em;
+}
+.article-body strong {
+  font-weight: 650;
+  color: var(--color-ink);
+}
+
+/* Utility: hide scrollbar for horizontal rails while keeping them scrollable */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
